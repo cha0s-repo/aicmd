@@ -8,8 +8,8 @@ use wait_timeout::ChildExt;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // 1. 设置 Linux 工具链路径
-    let tools_path = "C:\\agent_tools"; 
+    // 1. Linux 工具链路径
+    let tools_path = "C:\\agent_tools\\coreutils"; 
     
     // 2. 检查并自动初始化 uutils 工具环境
     setup_uutils(tools_path);
@@ -54,22 +54,22 @@ fn main() {
     }
 }
 
-/// 检查并自动下载、配置 uutils
+/// 检查并自动下载、配置 uutils（独立 exe 版本）
 fn setup_uutils(tools_path: &str) {
-    let coreutils_exe = format!("{}\\{}", tools_path, "coreutils.exe");
+    let ls_exe = format!("{}\\{}", tools_path, "ls.exe");
     
     // 如果工具已经存在，直接返回
-    if Path::new(&coreutils_exe).exists() {
+    if Path::new(&ls_exe).exists() {
         return;
     }
 
-    eprintln!("[AgentEnv] Linux tools not found. Downloading uutils to {}...", tools_path);
-    fs::create_dir_all(tools_path).expect("Failed to create agent_tools directory");
+    eprintln!("[AgentEnv] Linux tools not found. Downloading uutils...");
+    fs::create_dir_all(tools_path).expect("Failed to create tools directory");
 
-    let zip_path = format!("{}\\{}", tools_path, "coreutils.zip");
-    let download_url = "https://github.com/uutils/coreutils/releases/latest/download/coreutils-x86_64-pc-windows-msvc.zip";
+    let zip_path = format!("{}\\coreutils.zip", tools_path);
+    let download_url = "https://github.com/uutils/coreutils/releases/latest/download/coreutils-0.8.0-x86_64-pc-windows-msvc.zip";
 
-    // 1. 调用 Windows 内置 curl 下载
+    // 1. 下载
     let curl_status = Command::new("curl.exe")
         .args(["-L", download_url, "-o", &zip_path])
         .status()
@@ -80,9 +80,13 @@ fn setup_uutils(tools_path: &str) {
         exit(1);
     }
 
-    // 2. 调用 Windows 内置 tar 解压
+    // 2. 解压到临时目录
+    let tmp_dir = format!("{}\\_tmp", tools_path);
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).expect("Failed to create tmp dir");
+
     let tar_status = Command::new("tar.exe")
-        .args(["-xf", &zip_path, "-C", tools_path])
+        .args(["-xf", &zip_path, "-C", &tmp_dir])
         .status()
         .expect("Failed to execute tar.exe");
 
@@ -91,72 +95,26 @@ fn setup_uutils(tools_path: &str) {
         exit(1);
     }
 
-    // 3. 寻找并移动 coreutils.exe
-    for entry in fs::read_dir(tools_path).unwrap() {
+    // 3. 将子目录中的所有 .exe 移到 tools_path
+    for entry in fs::read_dir(&tmp_dir).unwrap() {
         let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_dir() {
-            let dir_name = entry.file_name();
-            if dir_name.to_string_lossy().starts_with("coreutils-") {
-                let exe_in_dir = entry.path().join("coreutils.exe");
-                if exe_in_dir.exists() {
-                    fs::rename(exe_in_dir, &coreutils_exe).expect("Failed to move coreutils.exe");
+        let path = entry.path();
+        if path.is_dir() {
+            for file in fs::read_dir(&path).unwrap() {
+                let file = file.unwrap();
+                let name = file.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.ends_with(".exe") {
+                    let dest = format!("{}\\{}", tools_path, name_str);
+                    let _ = fs::rename(file.path(), &dest);
                 }
-                let _ = fs::remove_dir_all(entry.path());
-                break;
             }
         }
     }
 
+    // 清理
+    let _ = fs::remove_dir_all(&tmp_dir);
     let _ = fs::remove_file(&zip_path);
 
-    // 4. 动态解析并生成所有支持命令的批处理代理
-    eprintln!("[AgentEnv] Generating command proxies...");
-    generate_proxies(&coreutils_exe, tools_path);
-
     eprintln!("[AgentEnv] uutils setup complete.");
-}
-
-/// 运行 coreutils.exe 解析输出并动态生成所有命令的 .bat 代理
-fn generate_proxies(coreutils_exe: &str, tools_path: &str) {
-    // 运行 coreutils.exe 获取支持的命令列表
-    let output = Command::new(coreutils_exe)
-        .output()
-        .expect("Failed to run coreutils.exe for proxy generation");
-// uutils 通常在没有参数时将帮助信息输出到 stderr，但为了保险，我们将 stdout 和 stderr 合并
-    let help_text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let mut parsing_commands = false;
-
-    // 解析帮助文本
-    for line in help_text.lines() {
-        // 遇到 "Currently defined functions:" 标志位时，开始解析后续行
-        if line.contains("Currently defined functions:") {
-            parsing_commands = true;
-            continue;
-        }
-
-        if parsing_commands {
-            // 替换掉方括号和逗号，统一转换为空格以便分割
-            let cleaned_line = line.replace('[', " ")
-                                   .replace(']', " ")
-                                   .replace(',', " ");
-            
-            for cmd in cleaned_line.split_whitespace() {
-                let cmd_name = cmd.trim();
-                
-                // 过滤掉空字符串和无意义的名称
-                if !cmd_name.is_empty() && cmd_name != "coreutils" {
-                    let bat_path = format!("{}\\{}.bat", tools_path, cmd_name);
-                    let bat_content = format!("@echo off\r\ncoreutils.exe {} %*\r\n", cmd_name);
-                    
-                    // 忽略写入错误，继续生成下一个
-                    let _ = fs::write(&bat_path, bat_content);
-                }
-            }
-        }
-    }
 }
