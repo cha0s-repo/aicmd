@@ -1,0 +1,9 @@
+[package]
+name = "aicmd"
+version = "0.1.0"
+edition = "2021"
+description = "Agent command executor with Linux toolchain support on Windows"
+license = "MIT"
+
+[dependencies]
+wait-timeout = "0.2"
