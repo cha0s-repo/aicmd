@@ -1,8 +1,8 @@
 # aicmd
 
-A Windows `cmd.exe` wrapper for SSH-based AI agents, automatically injecting [uutils/coreutils](https://github.com/uutils/coreutils) Linux commands into `PATH`.
+The aicmd poriveds set of Linux tools via uutils, you can use linux like tools in Windows. It automatically injecting [uutils/coreutils](https://github.com/uutils/coreutils) Linux commands into Windows `PATH`.
 
-Designed to solve the problem of AI coding agents (Codex, Claude Code, etc.) connecting via OpenSSH to Windows and expecting Unix-like commands (`ls`, `cat`, `head`, `grep`, etc.) that don't exist natively.
+Designed to solve the problem of AI agent using Unix-like commands as tools to execute in Windows.
 
 ## Features
 
